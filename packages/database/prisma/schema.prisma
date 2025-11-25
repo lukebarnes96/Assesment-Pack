@@ -1,0 +1,304 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  BROKER
+  CLIENT
+}
+
+enum PolicyStatus {
+  DRAFT
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  PENDING_RENEWAL
+}
+
+enum ClaimStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  PAID
+}
+
+enum InsuranceType {
+  AUTO
+  HOME
+  LIFE
+  HEALTH
+  BUSINESS
+  TRAVEL
+  PET
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  VERY_HIGH
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  password      String
+  firstName     String
+  lastName      String
+  role          UserRole @default(CLIENT)
+  phone         String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  lastLoginAt   DateTime?
+
+  // Relations
+  clientProfile Client?
+  brokerClients BrokerClient[]
+  quotes        Quote[]
+  auditLogs     AuditLog[]
+  chatSessions  ChatSession[]
+
+  @@index([email])
+  @@index([role])
+}
+
+model Client {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  dateOfBirth     DateTime
+  address         String
+  city            String
+  state           String
+  zipCode         String
+  country         String    @default("USA")
+  occupation      String?
+  annualIncome    Float?
+  riskProfile     Json?     // AI-generated risk profile
+  aiInsights      Json?     // AI-generated insights
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  policies        Policy[]
+  claims          Claim[]
+  quotes          Quote[]
+  documents       Document[]
+  brokers         BrokerClient[]
+  riskAssessments RiskAssessment[]
+
+  @@index([userId])
+  @@index([zipCode])
+}
+
+model BrokerClient {
+  id         String   @id @default(cuid())
+  brokerId   String
+  clientId   String
+  assignedAt DateTime @default(now())
+
+  broker     User     @relation(fields: [brokerId], references: [id], onDelete: Cascade)
+  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([brokerId, clientId])
+  @@index([brokerId])
+  @@index([clientId])
+}
+
+model InsuranceProduct {
+  id              String        @id @default(cuid())
+  name            String
+  type            InsuranceType
+  carrier         String
+  description     String
+  basePrice       Float
+  coverageDetails Json
+  eligibility     Json          // Eligibility criteria
+  features        String[]
+  isActive        Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relations
+  policies        Policy[]
+  quotes          Quote[]
+
+  @@index([type])
+  @@index([carrier])
+  @@index([isActive])
+}
+
+model Policy {
+  id              String        @id @default(cuid())
+  policyNumber    String        @unique
+  clientId        String
+  productId       String
+  status          PolicyStatus  @default(DRAFT)
+  premium         Float
+  coverageAmount  Float
+  deductible      Float
+  startDate       DateTime
+  endDate         DateTime
+  renewalDate     DateTime?
+  terms           Json
+  aiRecommendation Json?       // AI recommendation details
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relations
+  client          Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  product         InsuranceProduct @relation(fields: [productId], references: [id])
+  claims          Claim[]
+  documents       Document[]
+
+  @@index([clientId])
+  @@index([productId])
+  @@index([status])
+  @@index([policyNumber])
+}
+
+model Quote {
+  id              String        @id @default(cuid())
+  quoteNumber     String        @unique
+  clientId        String
+  productId       String
+  userId          String        // User who created the quote
+  premium         Float
+  coverageAmount  Float
+  deductible      Float
+  validUntil      DateTime
+  details         Json
+  aiScore         Float?        // AI confidence score
+  aiRecommendation Json?
+  isAccepted      Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relations
+  client          Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  product         InsuranceProduct @relation(fields: [productId], references: [id])
+  user            User          @relation(fields: [userId], references: [id])
+
+  @@index([clientId])
+  @@index([productId])
+  @@index([quoteNumber])
+}
+
+model Claim {
+  id              String      @id @default(cuid())
+  claimNumber     String      @unique
+  clientId        String
+  policyId        String
+  status          ClaimStatus @default(SUBMITTED)
+  incidentDate    DateTime
+  reportedDate    DateTime    @default(now())
+  claimAmount     Float
+  approvedAmount  Float?
+  description     String
+  aiAnalysis      Json?       // AI fraud detection and analysis
+  aiRecommendation Json?
+  processingNotes String?
+  settledAt       DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // Relations
+  client          Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  policy          Policy      @relation(fields: [policyId], references: [id])
+  documents       Document[]
+
+  @@index([clientId])
+  @@index([policyId])
+  @@index([status])
+  @@index([claimNumber])
+}
+
+model Document {
+  id              String    @id @default(cuid())
+  clientId        String?
+  policyId        String?
+  claimId         String?
+  fileName        String
+  fileType        String
+  fileSize        Int
+  fileUrl         String
+  category        String
+  extractedData   Json?     // AI-extracted data from document
+  aiAnalysis      Json?     // AI analysis of document
+  uploadedAt      DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  client          Client?   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  policy          Policy?   @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  claim           Claim?    @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([policyId])
+  @@index([claimId])
+  @@index([category])
+}
+
+model RiskAssessment {
+  id              String    @id @default(cuid())
+  clientId        String
+  assessmentType  String
+  riskLevel       RiskLevel
+  riskScore       Float     // 0-100
+  factors         Json      // Risk factors analyzed
+  recommendations Json      // AI recommendations
+  aiModel         String    // Model version used
+  createdAt       DateTime  @default(now())
+
+  // Relations
+  client          Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([assessmentType])
+  @@index([riskLevel])
+}
+
+model ChatSession {
+  id              String    @id @default(cuid())
+  userId          String
+  title           String    @default("New Conversation")
+  messages        Json[]    // Array of messages
+  context         Json?     // Conversation context
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isActive])
+}
+
+model AuditLog {
+  id              String    @id @default(cuid())
+  userId          String?
+  action          String
+  entity          String
+  entityId        String
+  changes         Json?
+  ipAddress       String?
+  userAgent       String?
+  createdAt       DateTime  @default(now())
+
+  // Relations
+  user            User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([entity])
+  @@index([entityId])
+  @@index([createdAt])
+}
